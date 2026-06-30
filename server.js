@@ -1,7 +1,6 @@
 require('dotenv').config();
 const allowedOrigins = [
   'http://localhost:5173', // Local development
-  'https://aonapps.in:6076' // Your future production frontend URL
 ];
 const express = require('express');
 const cors = require('cors');
