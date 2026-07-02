@@ -13,7 +13,8 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({
-  origin: 'https://aonapps.in:6075'
+  origin: 'https://aonapps.in:6075',
+  credentials: true // Enable if you send cookies/sessions
 }));
 app.use(express.json());
 
