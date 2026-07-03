@@ -4,17 +4,13 @@ require('dotenv').config();
 const config = {
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  server: process.env.DB_SERVER, // e.g., 'your-server.database.windows.net'
+  server: String(process.env.DB_SERVER || 'your-actual-server-address.database.windows.net'), 
   database: process.env.DB_DATABASE,
   options: {
-    encrypt: true, // Crucial for Azure and secure cloud connections
-    trustServerCertificate: false // Set to true if using a local self-signed dev server
+    encrypt: true,
+    trustServerCertificate: false
   },
-  pool: {
-    max: 10,
-    min: 0,
-    idleTimeoutMillis: 30000
-  }
+  pool: { max: 10, min: 0, idleTimeoutMillis: 30000 }
 };
 
 // Create a global pool connection reference
