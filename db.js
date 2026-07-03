@@ -5,6 +5,7 @@ const config = {
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   server: String(process.env.DB_SERVER || 'your-actual-server-address.database.windows.net'), 
+  port: parseInt(process.env.DB_PORT) || 1433,
   database: process.env.DB_DATABASE,
   options: {
     encrypt: true,

@@ -17,6 +17,7 @@
   ],
   "env": {
     "DB_SERVER": "110.227.194.109,2739",
+    "DB_PORT": "2739",
     "DB_DATABASE": "SecureLocker_DB",
     "DB_USER": "appadm",
     "DB_PASSWORD": "ad@0808",
