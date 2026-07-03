@@ -1,71 +1,94 @@
 const express = require('express');
 const crypto = require('crypto');
-const { readDb, writeDb } = require('../db');
+const { poolPromise, sql } = require('../db');
 const { authRequired, renterOnly } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.post('/', authRequired, renterOnly, (req, res) => {
+router.post('/', authRequired, renterOnly, async (req, res) => {
   const { lockerId, startDate, durationMonths } = req.body;
   if (!lockerId || !startDate || !durationMonths) {
     return res.status(400).json({ message: 'lockerId, startDate and durationMonths are required' });
   }
-  const db = readDb();
-  const locker = db.lockers.find((l) => l.id === lockerId);
-  if (!locker) return res.status(404).json({ message: 'Locker not found' });
-  if (locker.status !== 'available') return res.status(400).json({ message: 'Locker is not available' });
 
-  const booking = {
-    id: crypto.randomUUID(),
-    lockerId,
-    lockerTitle: locker.title,
-    ownerId: locker.ownerId,
-    renterId: req.user.id,
-    startDate,
-    durationMonths: Number(durationMonths),
-    totalPrice: locker.price * Number(durationMonths),
-    status: 'active',
-    createdAt: new Date().toISOString(),
-  };
-  locker.status = 'booked';
-  db.bookings.push(booking);
-  writeDb(db);
-  res.status(201).json(booking);
-});
+  try {
+    const pool = await poolPromise;
+    const bookingId = crypto.randomUUID();
+    const result = await pool.request()
+      .input('Id', sql.UniqueIdentifier, bookingId)
+      .input('LockerId', sql.UniqueIdentifier, lockerId)
+      .input('RenterId', sql.UniqueIdentifier, req.user.id)
+      .input('StartDate', sql.Date, startDate)
+      .input('DurationMonths', sql.Int, Number(durationMonths))
+      .execute('sp_CreateBooking');
 
-router.get('/mine', authRequired, renterOnly, (req, res) => {
-  const db = readDb();
-  const bookings = db.bookings
-    .filter((b) => b.renterId === req.user.id)
-    .map((b) => ({ ...b, locker: db.lockers.find((l) => l.id === b.lockerId) || null }));
-  res.json(bookings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
-});
-
-router.get('/owner', authRequired, (req, res) => {
-  if (req.user.role !== 'owner') return res.status(403).json({ message: 'Only owners can view this' });
-  const db = readDb();
-  const bookings = db.bookings
-    .filter((b) => b.ownerId === req.user.id)
-    .map((b) => {
-      const renter = db.users.find((u) => u.id === b.renterId);
-      const locker = db.lockers.find((l) => l.id === b.lockerId);
-      return { ...b, renterName: renter ? renter.name : 'Unknown', renterPhone: renter ? renter.phone : '', locker: locker || null };
-    });
-  res.json(bookings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
-});
-
-router.put('/:id/cancel', authRequired, (req, res) => {
-  const db = readDb();
-  const booking = db.bookings.find((b) => b.id === req.params.id);
-  if (!booking) return res.status(404).json({ message: 'Booking not found' });
-  if (booking.renterId !== req.user.id && booking.ownerId !== req.user.id) {
-    return res.status(403).json({ message: 'Not authorized to cancel this booking' });
+    res.status(201).json(result.recordset[0]);
+  } catch (err) {
+    if (err.message.includes('not available')) return res.status(400).json({ message: err.message });
+    if (err.message.includes('not found')) return res.status(404).json({ message: err.message });
+    res.status(500).json({ error: err.message });
   }
-  booking.status = 'cancelled';
-  const locker = db.lockers.find((l) => l.id === booking.lockerId);
-  if (locker) locker.status = 'available';
-  writeDb(db);
-  res.json(booking);
+});
+
+router.get('/mine', authRequired, renterOnly, async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT b.*, 
+             (SELECT * FROM Lockers WHERE Id = b.LockerId FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS locker
+      FROM Bookings b
+      WHERE b.RenterId = '${req.user.id}'
+      ORDER BY b.CreatedAt DESC
+    `);
+    
+    const configuredBookings = result.recordset.map(row => ({
+      ...row,
+      locker: JSON.parse(row.locker)
+    }));
+    res.json(configuredBookings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/owner', authRequired, async (req, res) => {
+  if (req.user.role !== 'owner') return res.status(403).json({ message: 'Only owners can view this' });
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().query(`
+      SELECT b.*, u.Name as renterName, u.Phone as renterPhone,
+             (SELECT * FROM Lockers WHERE Id = b.LockerId FOR JSON PATH, WITHOUT_ARRAY_WRAPPER) AS locker
+      FROM Bookings b
+      LEFT JOIN Users u ON b.RenterId = u.Id
+      WHERE b.OwnerId = '${req.user.id}'
+      ORDER BY b.CreatedAt DESC
+    `);
+
+    const configuredBookings = result.recordset.map(row => ({
+      ...row,
+      renterName: row.renterName || 'Unknown',
+      renterPhone: row.renterPhone || '',
+      locker: JSON.parse(row.locker)
+    }));
+    res.json(configuredBookings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/:id/cancel', authRequired, async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('Id', sql.UniqueIdentifier, req.params.id)
+      .input('UserId', sql.UniqueIdentifier, req.user.id)
+      .execute('sp_CancelBooking');
+
+    res.json(result.recordset[0]);
+  } catch (err) {
+    if (err.message.includes('unauthorized')) return res.status(403).json({ message: err.message });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

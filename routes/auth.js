@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { readDb, writeDb } = require('../db');
+const { poolPromise, sql } = require('../db');
 const { JWT_SECRET, authRequired } = require('../middleware/auth');
 
 const router = express.Router();
@@ -15,25 +15,29 @@ router.post('/signup', async (req, res) => {
   if (!['owner', 'renter'].includes(role)) {
     return res.status(400).json({ message: 'Role must be owner or renter' });
   }
-  const db = readDb();
-  const existing = db.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-  if (existing) {
-    return res.status(409).json({ message: 'An account with this email already exists' });
+
+  try {
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userId = crypto.randomUUID();
+    const pool = await poolPromise;
+    
+    const result = await pool.request()
+      .input('Id', sql.UniqueIdentifier, userId)
+      .input('Name', sql.NVarChar(100), name)
+      .input('Email', sql.NVarChar(256), email)
+      .input('Phone', sql.NVarChar(20), phone || '')
+      .input('Role', sql.NVarChar(50), role)
+      .input('PasswordHash', sql.NVarChar(255), passwordHash)
+      .execute('sp_CreateUser');
+
+    const user = result.recordset[0];
+    const token = jwt.sign({ id: user.Id, role: user.Role, name: user.Name, email: user.Email }, JWT_SECRET, { expiresIn: '7d' });
+    
+    res.status(201).json({ token, user: { id: user.Id, name: user.Name, email: user.Email, role: user.Role, phone: user.Phone } });
+  } catch (err) {
+    if (err.message.includes('already exists')) return res.status(409).json({ message: err.message });
+    res.status(500).json({ error: err.message });
   }
-  const passwordHash = await bcrypt.hash(password, 10);
-  const user = {
-    id: crypto.randomUUID(),
-    name,
-    email,
-    phone: phone || '',
-    role,
-    passwordHash,
-    createdAt: new Date().toISOString(),
-  };
-  db.users.push(user);
-  writeDb(db);
-  const token = jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-  res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, phone: user.phone } });
 });
 
 router.post('/login', async (req, res) => {
@@ -41,24 +45,39 @@ router.post('/login', async (req, res) => {
   if (!email || !password) {
     return res.status(400).json({ message: 'Email and password are required' });
   }
-  const db = readDb();
-  const user = db.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-  if (!user) {
-    return res.status(401).json({ message: 'Invalid email or password' });
+
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('Email', sql.NVarChar(256), email)
+      .execute('sp_GetUserByEmail');
+
+    const user = result.recordset[0];
+    if (!user) return res.status(401).json({ message: 'Invalid email or password' });
+
+    const valid = await bcrypt.compare(password, user.PasswordHash);
+    if (!valid) return res.status(401).json({ message: 'Invalid email or password' });
+
+    const token = jwt.sign({ id: user.Id, role: user.Role, name: user.Name, email: user.Email }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { id: user.Id, name: user.Name, email: user.Email, role: user.Role, phone: user.Phone } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) {
-    return res.status(401).json({ message: 'Invalid email or password' });
-  }
-  const token = jwt.sign({ id: user.id, role: user.role, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, phone: user.phone } });
 });
 
-router.get('/me', authRequired, (req, res) => {
-  const db = readDb();
-  const user = db.users.find((u) => u.id === req.user.id);
-  if (!user) return res.status(404).json({ message: 'User not found' });
-  res.json({ id: user.id, name: user.name, email: user.email, role: user.role, phone: user.phone });
+router.get('/me', authRequired, async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('Id', sql.UniqueIdentifier, req.user.id)
+      .execute('sp_GetUserById');
+
+    const user = result.recordset[0];
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json({ id: user.Id, name: user.Name, email: user.Email, role: user.Role, phone: user.Phone });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

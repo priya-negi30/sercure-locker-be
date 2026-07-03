@@ -1,23 +1,58 @@
-const fs = require('fs');
-const path = require('path');
+const sql = require('mssql');
+require('dotenv').config();
 
-const DB_PATH = path.join(__dirname, 'data', 'db.json');
-
-function ensureDb() {
-  const dir = path.dirname(DB_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  if (!fs.existsSync(DB_PATH)) {
-    fs.writeFileSync(DB_PATH, JSON.stringify({ users: [], lockers: [], bookings: [] }, null, 2));
+const config = {
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  server: process.env.DB_SERVER, // e.g., 'your-server.database.windows.net'
+  database: process.env.DB_DATABASE,
+  options: {
+    encrypt: true, // Crucial for Azure and secure cloud connections
+    trustServerCertificate: false // Set to true if using a local self-signed dev server
+  },
+  pool: {
+    max: 10,
+    min: 0,
+    idleTimeoutMillis: 30000
   }
-}
+};
 
-function readDb() {
-  ensureDb();
-  return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
-}
+// Create a global pool connection reference
+const poolPromise = new sql.ConnectionPool(config)
+  .connect()
+  .then(pool => {
+    console.log('Connected to SQL Server successfully!');
+    return pool;
+  })
+  .catch(err => {
+    console.error('Database Connection Failed! Bad Config: ', err);
+    throw err;
+  });
 
-function writeDb(data) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-}
+module.exports = {
+  sql,
+  poolPromise
+};
+// const fs = require('fs');
+// const path = require('path');
 
-module.exports = { readDb, writeDb };
+// const DB_PATH = path.join(__dirname, 'data', 'db.json');
+
+// function ensureDb() {
+//   const dir = path.dirname(DB_PATH);
+//   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+//   if (!fs.existsSync(DB_PATH)) {
+//     fs.writeFileSync(DB_PATH, JSON.stringify({ users: [], lockers: [], bookings: [] }, null, 2));
+//   }
+// }
+
+// function readDb() {
+//   ensureDb();
+//   return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+// }
+
+// function writeDb(data) {
+//   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+// }
+
+// module.exports = { readDb, writeDb };
