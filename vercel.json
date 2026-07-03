@@ -16,10 +16,10 @@
     }
   ],
   "env": {
-    "DB_SERVER": "@db_server",
-    "DB_DATABASE": "@db_database",
-    "DB_USER": "@db_user",
-    "DB_PASSWORD": "@db_password",
-    "JWT_SECRET": "@jwt_secret"
+    "DB_SERVER": "110.227.194.109,2739",
+    "DB_DATABASE": "SecureLocker_DB",
+    "DB_USER": "appadm",
+    "DB_PASSWORD": "ad@0808",
+    "JWT_SECRET": "replace-this-with-a-long-random-string"
   }
 }
