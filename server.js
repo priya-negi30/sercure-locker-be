@@ -11,7 +11,7 @@ const lockerRoutes = require('./routes/lockers');
 const bookingRoutes = require('./routes/bookings');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+//const PORT = process.env.PORT || 5000;
 
 app.use(cors({
   origin: 'https://aonapps.in:6075',
@@ -26,7 +26,3 @@ app.use('/api/lockers', lockerRoutes);
 app.use('/api/bookings', bookingRoutes);
 
 app.use((req, res) => res.status(404).json({ message: 'Route not found' }));
-
-app.listen(PORT, () => {
-  console.log(`Locker rental API running on http://localhost:${PORT}`);
-});
