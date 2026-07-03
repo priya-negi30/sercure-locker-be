@@ -1,6 +1,7 @@
 require('dotenv').config();
 const allowedOrigins = [
   'http://localhost:5173/', // Local development
+  'https://aonapps.in:6075/',
 ];
 const express = require('express');
 const cors = require('cors');
@@ -13,7 +14,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: 'http://aonapps.in:6075',
   credentials: true // Enable if you send cookies/sessions
 }));
 app.use(express.json());
